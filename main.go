@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"net/url"
@@ -23,6 +24,7 @@ var cli struct {
 	Brief   bool          `short:"b" help:"Show brief output (subject, issuer, validity only)"`
 	JSON    bool          `short:"j" help:"Output in JSON format"`
 	Verify  bool          `short:"v" help:"Verify certificate chain (fail on invalid certs)"`
+	Output  string        `short:"o" help:"Save certificate chain to PEM file"`
 }
 
 func main() {
@@ -54,6 +56,15 @@ func main() {
 	if len(certs) == 0 {
 		fmt.Fprintf(os.Stderr, "No certificates received from server\n")
 		os.Exit(1)
+	}
+
+	// Save certificates to PEM file if requested
+	if cli.Output != "" {
+		if err := saveCertsToPEM(cli.Output, certs); err != nil {
+			fmt.Fprintf(os.Stderr, "Error saving certificates to PEM: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Certificate chain saved to %s\n", cli.Output)
 	}
 
 	if cli.JSON {
@@ -129,7 +140,7 @@ func printCertificate(index int, cert *x509.Certificate, certType string) {
 	fmt.Printf("Issuer:          %s\n", cert.Issuer.String())
 	fmt.Println()
 
-	fmt.Printf("Serial Number:   %s\n", cert.SerialNumber.String())
+	fmt.Printf("Serial Number:   %s (0x%s)\n", cert.SerialNumber.String(), cert.SerialNumber.Text(16))
 	fmt.Printf("Version:         %d\n", cert.Version)
 	fmt.Println()
 
@@ -361,4 +372,24 @@ func getKeyUsageStrings(usage x509.KeyUsage) []string {
 		}
 	}
 	return result
+}
+
+func saveCertsToPEM(filename string, certs []*x509.Certificate) error {
+	file, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer file.Close()
+
+	for _, cert := range certs {
+		block := &pem.Block{
+			Type:  "CERTIFICATE",
+			Bytes: cert.Raw,
+		}
+		if err := pem.Encode(file, block); err != nil {
+			return fmt.Errorf("failed to encode certificate: %w", err)
+		}
+	}
+
+	return nil
 }
